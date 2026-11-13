@@ -12,30 +12,51 @@ env:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            use_cross: true
+            bin: vllm-bench
             artifact: vllm-bench-x86_64-linux-musl
           - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            use_cross: true
+            bin: vllm-bench
             artifact: vllm-bench-aarch64-linux-musl
-    runs-on: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+            bin: vllm-bench.exe
+            artifact: vllm-bench-x86_64-windows.exe
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: taiki-e/install-action@v2
+        if: matrix.use_cross
         with:
           tool: cross
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - name: Build
+      - name: Build (cross)
+        if: matrix.use_cross
         run: cross build --release --target ${{ matrix.target }}
+      - name: Build (native, static CRT)
+        if: ${{ !matrix.use_cross }}
+        env:
+          # Link the MSVC runtime statically so the .exe runs without the VC++ redistributable.
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release --target ${{ matrix.target }}
       - name: Package binary
+        shell: bash
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/vllm-bench dist/${{ matrix.artifact }}
+          cp target/${{ matrix.target }}/release/${{ matrix.bin }} dist/${{ matrix.artifact }}
           chmod +x dist/${{ matrix.artifact }}
       - uses: actions/upload-artifact@v4
         with:
@@ -64,4 +85,5 @@ jobs:
           files: |
             artifacts/vllm-bench-x86_64-linux-musl/vllm-bench-x86_64-linux-musl
             artifacts/vllm-bench-aarch64-linux-musl/vllm-bench-aarch64-linux-musl
+            artifacts/vllm-bench-x86_64-windows.exe/vllm-bench-x86_64-windows.exe
           fail_on_unmatched_files: true
